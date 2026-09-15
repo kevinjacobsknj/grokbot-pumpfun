@@ -1,5 +1,5 @@
 # локальный конфиг с ключами — в репозиторий не попадает
-config.yaml
+/config.yaml
 
 # логи пайплайна
 *.jsonl
@@ -22,3 +22,12 @@ state/
 coverage.xml
 htmlcov/
 .ruff_cache/
+
+# Paper research local data (keep directory structure via .gitkeep)
+data/**/*.jsonl
+data/**/*.sqlite3
+!data/**/.gitkeep
+logs/
+state/
+/config.yaml
+.env

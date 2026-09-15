@@ -1,3 +1,3 @@
-"""grokbot-pumpfun: пайплайн мемкоин-трейдинга на pump.fun с агентами на Grok API."""
+"""grokbot-pumpfun: paper-only Pump.fun launch research pipeline."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

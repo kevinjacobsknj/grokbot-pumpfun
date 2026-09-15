@@ -5,7 +5,9 @@
 не украшение: в runbook и в unit-файле должно стоять что-то одно, что
 человек вспомнит через месяц.
 
-    grokbot run                # торговый цикл (dry-run по умолчанию)
+    grokbot run                # paper/dry-run pipeline (live refused)
+    grokbot paper-monitor      # observation universe only (no agents/trades)
+    grokbot evaluate-baselines # compare baseline arms on stored observations
     grokbot check              # проверить конфиг и выйти
     grokbot doctor             # предполётная проверка окружения
     grokbot replay [лог]       # сводка по логу
@@ -37,7 +39,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="grokbot",
-        description="Пайплайн мемкоин-трейдинга на pump.fun с агентами на Grok",
+        description="Paper-only Pump.fun launch research pipeline",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -61,6 +63,16 @@ def build_parser() -> argparse.ArgumentParser:
         script.add_argument("args", nargs=argparse.REMAINDER)
 
     sub.add_parser("curve", help="числа кривой: комиссия, влияние, потолок заявки")
+
+    pm = sub.add_parser("paper-monitor", help="observation universe monitor (paper-only)")
+    pm.add_argument("--config", default="config.paper.yaml")
+    pm.add_argument("--data-dir", default="data")
+    pm.add_argument("--max-launches", type=int, default=0,
+                    help="stop after N promoted launches (0=forever)")
+
+    ev = sub.add_parser("evaluate-baselines", help="run baseline arms on data/observations")
+    ev.add_argument("--data-dir", default="data")
+    ev.add_argument("--json", action="store_true")
     return parser
 
 
@@ -133,6 +145,62 @@ def run_script(name: str, args: list[str]) -> int:
     return 0
 
 
+def cmd_paper_monitor(args: argparse.Namespace) -> int:
+    """Run observation universe monitor: store all launches, no live trading."""
+    from .observation_monitor import ObservationMonitor
+    from .observation_store import ObservationStore
+    from .log import setup_logging
+
+    config = load(args.config)
+    if config.is_live:
+        print("Отказ: live mode запрещён", file=sys.stderr)
+        return 1
+    try:
+        config.check_ready()
+    except ConfigError as exc:
+        # Allow paper monitor without grok key — observation only.
+        if "grok.api_key" not in str(exc):
+            print(str(exc), file=sys.stderr)
+            return 1
+        print("ВНИМАНИЕ: grok.api_key отсутствует — monitor-only OK", file=sys.stderr)
+    setup_logging(config)
+    store = ObservationStore(args.data_dir)
+    monitor = ObservationMonitor(config, store=store)
+
+    async def _run() -> int:
+        n = 0
+        async for token in monitor.stream():
+            n += 1
+            oid = getattr(token, "observation_id", "")
+            print(f"promoted {token.mint[:8]} obs={oid} buyers={token.unique_buyers}")
+            if args.max_launches and n >= args.max_launches:
+                return 0
+        return 0
+
+    return asyncio.run(_run())
+
+
+def cmd_evaluate_baselines(args: argparse.Namespace) -> int:
+    from .observation_store import ObservationStore
+    from .research.evaluate import evaluate_arms
+
+    store = ObservationStore(args.data_dir)
+    observations = list(store.iter_observations())
+    results = evaluate_arms(observations)
+    # Drop selected_ids from summary print unless json full
+    summary = {
+        k: {kk: vv for kk, vv in v.items() if kk != "selected_ids"}
+        for k, v in results.items()
+    }
+    print(json.dumps(summary if args.json else summary, ensure_ascii=False, indent=2))
+    print(
+        "\nComparative only — do not claim agent value without OOS improvement.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command = args.command or "run"
@@ -148,6 +216,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_doctor(args)
     if command == "curve":
         return cmd_curve()
+    if command == "paper-monitor":
+        return cmd_paper_monitor(args)
+    if command == "evaluate-baselines":
+        return cmd_evaluate_baselines(args)
     if command in ("replay", "dashboard", "tune"):
         return run_script(command, [a for a in args.args if a != "--"])
 

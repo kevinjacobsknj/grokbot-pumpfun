@@ -1,0 +1,29 @@
+{
+  "observation_id": "obs-example-1",
+  "mint": "MintExample111",
+  "auditor": {
+    "organic_buyer_share": 0.8
+  },
+  "narrative": {
+    "virality": 0.4
+  },
+  "timing": {
+    "market_sentiment": 0.5
+  },
+  "metrics": {
+    "top5_share": 0.3
+  },
+  "features_with_provenance": [
+    {
+      "name": "top5_share",
+      "observed_at": 1.0,
+      "decision_timestamp": 2.0,
+      "causal": true
+    }
+  ],
+  "paper_fill_assumptions": {
+    "fee_pct": 1.0,
+    "max_impact_pct": 3.0
+  },
+  "decision_timestamp": 2.0
+}

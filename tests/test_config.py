@@ -141,23 +141,23 @@ def test_zero_weights_rejected():
     assert any("веса" in e for e in errors)
 
 
-def test_live_without_wallet_key_rejected():
-    cfg = config(mode="live")
-    errors, _ = cfg.problems()
-    assert any("wallet_private_key" in e for e in errors)
-
-
-def test_live_with_http_rpc_rejected():
-    cfg = config(mode="live",
-                 solana={"wallet_private_key": "5xРеальныйКлюч", "rpc_url": "http://rpc.local"})
-    errors, _ = cfg.problems()
-    assert any("https" in e for e in errors)
-
-
-def test_live_with_everything_set_passes():
+def test_live_mode_always_rejected():
+    """Paper-research build: live is never valid, even with a wallet key."""
     cfg = config(mode="live", solana={"wallet_private_key": "5xРеальныйКлюч"})
     errors, _ = cfg.problems()
-    assert errors == []
+    assert any("live запрещён" in e or "paper-research" in e for e in errors)
+
+
+def test_paper_mode_ok():
+    cfg = config(mode="paper")
+    assert cfg.is_paper
+    assert not cfg.is_live
+    errors, _ = cfg.problems()
+    assert not any("live" in e for e in errors)
+
+
+def test_jito_disabled_by_default():
+    assert config().solana.jito.enabled is False
 
 
 def test_warnings_do_not_block_start():

@@ -1,0 +1,9 @@
+{
+  "observation_id": "obs-example-1",
+  "mint": "MintExample111",
+  "size_sol": 0.1,
+  "checker_approved": true,
+  "signal_timestamp": 1.0,
+  "decision_timestamp": 2.0,
+  "mode": "paper"
+}

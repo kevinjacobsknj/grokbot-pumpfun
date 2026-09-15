@@ -1,0 +1,22 @@
+{
+  "observation_id": "obs-example-1",
+  "trend_fit": 0.5,
+  "virality": 0.4,
+  "community_signals": 0.3,
+  "launch_timing": 0.5,
+  "reasoning": "example",
+  "observed_evidence": [
+    {
+      "kind": "observed",
+      "claim": "has twitter",
+      "source": "metadata"
+    }
+  ],
+  "inferences": [
+    {
+      "kind": "inference",
+      "claim": "may fit cat meta",
+      "confidence": 0.4
+    }
+  ]
+}

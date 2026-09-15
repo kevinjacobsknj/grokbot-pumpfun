@@ -655,15 +655,11 @@ def load_and_check(args: argparse.Namespace) -> Config:
         print(f"ВНИМАНИЕ: {warning}", file=sys.stderr)
 
     if config.is_live:
-        print(LIVE_WARNING.format(
-            max_sol=config.risk.max_sol_per_trade,
-            daily=config.risk.daily_loss_limit_sol,
-        ), file=sys.stderr)
-        if not getattr(args, "i_understand_the_risk", False):
-            raise SystemExit(
-                "Отказ: mode: live без флага --i-understand-the-risk. "
-                "Либо верните mode: dry-run, либо подтвердите флагом."
-            )
+        raise SystemExit(
+            "Отказ: mode: live запрещён в paper-research сборке. "
+            "Используйте mode: paper или mode: dry-run. "
+            "LiveExecutor permanently disabled; флаги не помогут."
+        )
     return config
 
 

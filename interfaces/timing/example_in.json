@@ -1,0 +1,13 @@
+{
+  "observation_id": "obs-example-1",
+  "pumpfun_market_activity": {
+    "launches_per_hour": 100
+  },
+  "launch_rate": 100.0,
+  "migration_graduation_rate": 0.02,
+  "volume": 500.0,
+  "sol_context": {
+    "price_usd": 150.0
+  },
+  "timestamp": 2.0
+}

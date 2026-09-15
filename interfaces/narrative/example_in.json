@@ -1,0 +1,20 @@
+{
+  "observation_id": "obs-example-1",
+  "mint": "MintExample111",
+  "token_metadata": {
+    "name": "Cat",
+    "symbol": "CAT"
+  },
+  "image_description": "a cat meme",
+  "social_urls": {
+    "twitter": "https://x.com/example"
+  },
+  "current_narrative_evidence": [
+    {
+      "kind": "observed",
+      "claim": "twitter link present",
+      "source": "metadata"
+    }
+  ],
+  "decision_timestamp": 2.0
+}

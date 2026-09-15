@@ -1,0 +1,39 @@
+{
+  "observation_id": "obs-example-1",
+  "mint": "MintExample111",
+  "early_tx_sequence": [
+    {
+      "wallet": "W1",
+      "is_buy": true,
+      "sol": 0.1,
+      "ts": 1.0
+    }
+  ],
+  "wallets": [
+    "W1",
+    "W2"
+  ],
+  "creator_activity": {
+    "buys": 1,
+    "sells": 0
+  },
+  "holder_concentration": {
+    "top5_share": 0.4
+  },
+  "timing": {
+    "age_seconds": 120
+  },
+  "tx_sizes": [
+    0.1,
+    0.2
+  ],
+  "suspected_coordinated_behavior": [],
+  "provenance": [
+    {
+      "feature": "top5_share",
+      "observed_at": 1.0,
+      "source": "rest"
+    }
+  ],
+  "decision_timestamp": 2.0
+}

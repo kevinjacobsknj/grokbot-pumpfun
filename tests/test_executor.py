@@ -11,11 +11,14 @@ import pytest
 from src.curve import INITIAL_VIRTUAL_SOL, CurveState
 from src.executor import (
     DRY_RUN_TX,
+    PAPER_TX,
     DryRunExecutor,
+    PaperExecutor,
     LiveExecutor,
     build_executor,
     new_position,
 )
+from src.models import ConfigError
 from src.models import Config, Position, Token
 
 LIVE_CURVE = {"virtual_sol_reserves": 45_000_000_000,
@@ -55,7 +58,7 @@ def position(tokens: float = 1_000_000.0, spent: float = 0.5) -> Position:
 async def test_buy_pays_worse_than_quote():
     """Средняя цена исполнения обязана быть хуже котировки: иначе где-то
     потерялись комиссия и собственное влияние на цену."""
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     spot = CurveState.from_api(LIVE_CURVE).spot_price
 
     result = await executor.buy(token(), 0.4)
@@ -67,38 +70,39 @@ async def test_buy_pays_worse_than_quote():
 
 
 async def test_buy_tokens_match_the_curve():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     result = await executor.buy(token(), 0.4)
     # цена × количество = потрачено, до цента
     assert result.price * result.token_amount == pytest.approx(result.sol_amount, rel=1e-12)
 
 
 async def test_buy_refused_above_impact_cap():
-    executor = DryRunExecutor(config(max_price_impact_pct=1.5), client(LIVE_CURVE))
+    executor = PaperExecutor(config(max_price_impact_pct=1.5), client(LIVE_CURVE))
     result = await executor.buy(token(), 5.0)
     assert not result.ok
-    assert "влияние на цену" in result.error
+    assert "impact" in result.error.lower() or "влияние" in result.error
     assert result.impact_pct > 1.5
 
 
 async def test_buy_refused_without_curve_data():
-    executor = DryRunExecutor(config(), client({}))
+    executor = PaperExecutor(config(), client({}))
     result = await executor.buy(token(market_cap_sol=0.0), 0.4)
     assert not result.ok
-    assert "кривой неизвестно" in result.error
+    assert result.status == "UNTRADEABLE"
+    assert "unavailable" in result.error.lower() or "кривой" in result.error
 
 
 async def test_buy_falls_back_to_market_cap():
     """Резервов нет, но капитализация известна — состояние кривой из неё
     восстанавливается точно, потому что произведение резервов постоянно."""
-    executor = DryRunExecutor(config(), client({}))
+    executor = PaperExecutor(config(), client({}))
     result = await executor.buy(token(market_cap_sol=60.0), 0.2)
     assert result.ok
     assert result.token_amount > 0
 
 
 async def test_zero_size_refused():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     assert not (await executor.buy(token(), 0.0)).ok
 
 
@@ -106,7 +110,7 @@ async def test_zero_size_refused():
 
 
 async def test_sell_receives_less_than_quote():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     spot = CurveState.from_api(LIVE_CURVE).spot_price
     result = await executor.sell(position())
     assert result.ok
@@ -115,7 +119,7 @@ async def test_sell_receives_less_than_quote():
 
 
 async def test_partial_sell_takes_its_share():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     pos = position(tokens=1_000_000.0)
     result = await executor.sell(pos, fraction=0.6)
     assert result.token_amount == pytest.approx(600_000.0)
@@ -124,20 +128,20 @@ async def test_partial_sell_takes_its_share():
 async def test_dust_tail_is_sold_whole():
     """Оставлять в позиции меньше процента незачем: это пыль, которая
     только мешает учёту."""
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     result = await executor.sell(position(tokens=1_000_000.0), fraction=0.995)
     assert result.token_amount == pytest.approx(1_000_000.0)
 
 
 async def test_sell_fraction_clamped():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     pos = position(tokens=1_000_000.0)
     assert (await executor.sell(pos, fraction=5.0)).token_amount == pytest.approx(1_000_000.0)
     assert not (await executor.sell(pos, fraction=0.0)).ok
 
 
 async def test_sell_without_curve_refused():
-    executor = DryRunExecutor(config(), client({}))
+    executor = PaperExecutor(config(), client({}))
     result = await executor.sell(position())
     assert not result.ok
 
@@ -146,19 +150,19 @@ async def test_sell_without_curve_refused():
 
 
 async def test_price_returns_spot():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     assert await executor.price("Mint1") == pytest.approx(
         CurveState.from_api(LIVE_CURVE).spot_price
     )
 
 
 async def test_price_zero_when_unknown():
-    executor = DryRunExecutor(config(), client({}))
+    executor = PaperExecutor(config(), client({}))
     assert await executor.price("Mint1") == 0.0
 
 
 async def test_curve_progress_excludes_virtual():
-    executor = DryRunExecutor(config(), client(LIVE_CURVE))
+    executor = PaperExecutor(config(), client(LIVE_CURVE))
     state = await executor.curve("Mint1")
     assert state is not None
     assert state.real_sol == pytest.approx(45.0 - INITIAL_VIRTUAL_SOL)
@@ -167,28 +171,48 @@ async def test_curve_progress_excludes_virtual():
 # --- режимы ---------------------------------------------------------------
 
 
-def test_build_executor_picks_by_mode():
-    assert isinstance(build_executor(config()), DryRunExecutor)
+def test_build_executor_returns_paper():
+    assert isinstance(build_executor(config()), PaperExecutor)
+    paper = config()
+    paper.mode = "paper"
+    assert isinstance(build_executor(paper), PaperExecutor)
+
+
+def test_build_executor_refuses_live():
     live = config()
     live.mode = "live"
-    assert isinstance(build_executor(live), LiveExecutor)
+    with pytest.raises(ConfigError, match="refused mode: live|paper-research"):
+        build_executor(live)
 
 
-async def test_live_executor_is_a_deliberate_stub():
-    executor = LiveExecutor(config(), client(LIVE_CURVE))
-    with pytest.raises(NotImplementedError, match="намеренно"):
-        await executor.buy(token(), 0.4)
-    with pytest.raises(NotImplementedError, match="намеренно"):
-        await executor.sell(position())
+def test_live_executor_permanently_disabled():
+    with pytest.raises(ConfigError, match="permanently disabled"):
+        LiveExecutor(config(), client(LIVE_CURVE))
 
 
-async def test_live_executor_can_still_quote():
-    """Расчёт заявки живой и в live: из него берутся max_sol_cost и
-    min_sol_output, когда отправка будет дописана."""
-    executor = LiveExecutor(config(), client(LIVE_CURVE))
-    state = await executor.curve("Mint1")
-    assert executor.plan_buy(state, 0.4).ok
-    assert executor.plan_sell(state, 1_000_000.0).ok
+async def test_paper_buy_untradeable_without_curve():
+    executor = PaperExecutor(config(), client({}))
+    result = await executor.buy(token(market_cap_sol=0.0), 0.4)
+    assert not result.ok
+    assert result.status == "UNTRADEABLE"
+    assert executor.last_attempt is not None
+    assert executor.last_attempt.status == "UNTRADEABLE"
+    assert "invented" in executor.last_attempt.error or "unavailable" in executor.last_attempt.error
+
+
+async def test_paper_sell_graduated_is_untradeable():
+    """Graduated tokens have no bonding-curve quote — do not invent Raydium fills."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "virtual_sol_reserves": 45_000_000_000,
+            "virtual_token_reserves": 715_333_460_666_667,
+            "complete": True,
+        })
+    executor = PaperExecutor(config(), httpx.AsyncClient(
+        base_url="http://test", transport=httpx.MockTransport(handler)))
+    result = await executor.sell(position())
+    assert not result.ok
+    assert result.status == "UNTRADEABLE"
 
 
 def test_new_position_carries_context():
@@ -201,3 +225,8 @@ def test_new_position_carries_context():
     assert pos.peak_price == pos.entry_price == 1e-7
     assert pos.score == 0.81
     assert pos.realized_sol == 0.0 and pos.partials == 0
+
+
+def test_dry_run_alias_is_paper():
+    assert DryRunExecutor is PaperExecutor
+    assert DRY_RUN_TX == PAPER_TX

@@ -1,0 +1,6 @@
+{
+  "observation_id": "obs-example-1",
+  "status": "UNTRADEABLE",
+  "attempt": {},
+  "error": "example: no quote"
+}

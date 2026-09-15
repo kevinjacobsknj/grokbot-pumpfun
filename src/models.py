@@ -298,7 +298,7 @@ class GrokConfig(SecretModel):
 
 
 class JitoConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False  # paper-research: never opt-in by default
     block_engine_url: str = "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
     tip_lamports: int = 1_000_000
 
@@ -475,7 +475,7 @@ def _deep_set(target: dict[str, Any], path: tuple[str, ...], value: Any) -> None
 
 
 class Config(BaseModel):
-    mode: Literal["dry-run", "live"] = "dry-run"
+    mode: Literal["dry-run", "paper", "live"] = "dry-run"
     grok: GrokConfig = Field(default_factory=GrokConfig)
     solana: SolanaConfig = Field(default_factory=SolanaConfig)
     data: DataConfig = Field(default_factory=DataConfig)
@@ -490,6 +490,11 @@ class Config(BaseModel):
     @property
     def is_live(self) -> bool:
         return self.mode == "live"
+
+    @property
+    def is_paper(self) -> bool:
+        """Paper / dry-run research modes (no real money path)."""
+        return self.mode in ("dry-run", "paper")
 
     # -- загрузка ----------------------------------------------------------
 
@@ -627,15 +632,10 @@ class Config(BaseModel):
             errors.append("ops.grok_max_concurrency должен быть не меньше 1")
 
         if self.is_live:
-            if is_placeholder(self.solana.wallet_key):
-                errors.append("mode: live, но solana.wallet_private_key не задан")
-            if not self.solana.rpc_url.startswith("https://"):
-                errors.append("solana.rpc_url в live должен быть https")
-            if risk.max_sol_per_trade > 5.0:
-                warnings.append(
-                    f"risk.max_sol_per_trade = {risk.max_sol_per_trade} SOL — "
-                    "крупно для мемкоина на кривой, перепроверьте"
-                )
+            errors.append(
+                "mode: live запрещён в paper-research сборке — "
+                "используйте mode: dry-run или mode: paper"
+            )
 
         if is_placeholder(self.data.key):
             warnings.append(
