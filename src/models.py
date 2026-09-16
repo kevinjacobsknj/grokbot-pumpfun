@@ -264,6 +264,7 @@ class Position(BaseModel):
     creator: str | None = None
     entry_price: float = 0.0
     peak_price: float = 0.0          # максимум с момента входа, для трейлинга
+    trough_price: float = 0.0        # минимум с момента входа, для MAE
     sol_spent: float = 0.0
     token_amount: float = 0.0
     opened_at: float = 0.0

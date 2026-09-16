@@ -289,6 +289,13 @@ class Pipeline:
         # 2. Анализатор: сеть параллельно, метрики кодом.
         info, holders, trades = await self.analyzer.fetch(token.mint)
         enrich_token(token, info)
+        # Detect if REST filled without WS trade stream: flag missing_trade_stream
+        if token.observation_id and (not trades or len(trades) < 3):
+            # Few/no trades from REST suggests WS stream was missing
+            self.monitor.mark_enrichment_without_stream(
+                token.mint, 
+                detail=f"REST returned {len(trades)} trades; WS stream may be incomplete"
+            )
         curve = state_from_any(info, token.market_cap_sol)
         metrics = compute_metrics(
             token, holders, trades, curve, self.config.market,

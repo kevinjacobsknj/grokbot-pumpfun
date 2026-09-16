@@ -429,7 +429,9 @@ class PaperExecutor(BaseExecutor):
         attempt.net_pnl = result.sol_amount - cost_basis
 
         ref_peak = peak_price if peak_price is not None else position.peak_price
-        ref_trough = trough_price if trough_price is not None else position.entry_price
+        ref_trough = trough_price if trough_price is not None else (
+            position.trough_price if position.trough_price > 0 else position.entry_price
+        )
         if position.entry_price > 0:
             attempt.max_favorable_excursion = max(
                 0.0, (ref_peak - position.entry_price) / position.entry_price
@@ -493,6 +495,7 @@ def new_position(token: Token, result: ExecutionResult, score: float) -> Positio
         creator=token.creator,
         entry_price=result.price,
         peak_price=result.price,
+        trough_price=result.price,  # Initialize trough for MAE tracking
         sol_spent=result.sol_amount,
         token_amount=result.token_amount,
         opened_at=time.time(),
