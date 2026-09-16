@@ -130,7 +130,7 @@ def test_reject_is_stored_not_deleted(tmp_path):
     }
     mon.handle_event(create)
     # force promote path via sweep after age — still no_metadata
-    mon.sweep(now=time.time() + 10)
+    mon.sweep_sync(now=time.time() + 10)
     # reject path: inject buy then promote check
     mon.handle_event({"txType": "buy", "mint": "MintBad", "traderPublicKey": "W1"})
     # Manually trigger skip via inner promote with no metadata
