@@ -139,6 +139,18 @@ class Observation(BaseModel):
     trade_stream_events: int = 0
     rest_enrichment_only: bool = False
 
+    # Wave1 enrichment: early trade sequence, holder concentration, global timing
+    early_tx_sequence: list[dict[str, Any]] = Field(default_factory=list)
+    top5_share: float | None = None
+    top5_share_provenance: str = ""
+    top5_share_observed_at: float | None = None
+    holders_enriched: bool = False
+    holders_enrichment_incomplete: bool = False
+    
+    # Global timing snapshot at decision time (observable only, else null)
+    global_timing_snapshot: dict[str, Any] | None = None
+    global_timing_observed_at: float | None = None
+
     windows: dict[str, WindowSnapshot] = Field(default_factory=dict)
     features: list[ProvenancedFeature] = Field(default_factory=list)
     integrity_events: list[IntegrityEvent] = Field(default_factory=list)
@@ -216,3 +228,26 @@ class Observation(BaseModel):
             self.incomplete = True
         if kind in ("incomplete", "api_failure", "ws_disconnect", "data_gap"):
             self.incomplete = True
+
+    def add_early_trade(
+        self,
+        wallet: str,
+        is_buy: bool,
+        sol: float,
+        timestamp: float,
+        age_seconds: float,
+        max_early_window: float = 60.0,
+        max_sequence_length: int = 100,
+    ) -> None:
+        """Record early trade if within window and sequence not yet full."""
+        if age_seconds > max_early_window:
+            return
+        if len(self.early_tx_sequence) >= max_sequence_length:
+            return
+        self.early_tx_sequence.append({
+            "wallet": wallet,
+            "is_buy": is_buy,
+            "sol": sol,
+            "timestamp": timestamp,
+            "age_seconds": age_seconds,
+        })

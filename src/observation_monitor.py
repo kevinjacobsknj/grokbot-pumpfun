@@ -34,11 +34,13 @@ class ObservationMonitor:
         config: Config,
         store: Store | None = None,
         on_skip: Callable[[Token, str], None] | None = None,
+        on_migration: Callable[[str], None] | None = None,
     ) -> None:
         self.config = config
         self.store = store or Store()
         self._inner = LaunchMonitor(config, on_skip=self._on_skip_bridge)
         self._user_on_skip = on_skip
+        self._on_migration = on_migration
         self._by_mint: dict[str, Observation] = {}
         self._sellers: dict[str, set[str]] = {}
         self._buy_counts: dict[str, int] = {}
@@ -146,6 +148,19 @@ class ObservationMonitor:
                 self._trade_events[mint] = self._trade_events.get(mint, 0) + 1
                 wallet = payload.get("traderPublicKey") or payload.get("wallet")
                 sol_amt = float(payload.get("solAmount") or payload.get("sol_amount") or 0.0)
+                tx_ts = float(payload.get("timestamp") or time.time())
+                
+                # Capture early trade sequence
+                age = max(0.0, time.time() - (obs.creation_timestamp or time.time()))
+                if tx_type in ("buy", "sell") and wallet:
+                    obs.add_early_trade(
+                        wallet=wallet,
+                        is_buy=(tx_type == "buy"),
+                        sol=sol_amt,
+                        timestamp=tx_ts,
+                        age_seconds=age,
+                    )
+                
                 if tx_type == "buy":
                     self._buy_counts[mint] = self._buy_counts.get(mint, 0) + 1
                     self._volume[mint] = self._volume.get(mint, 0.0) + sol_amt
@@ -159,6 +174,8 @@ class ObservationMonitor:
                 if payload.get("complete") or payload.get("raydium_pool"):
                     obs.migration_state = "migrated"
                     obs.flag_integrity("migration", detail="bonding curve complete")
+                    if self._on_migration:
+                        self._on_migration(mint)
 
                 # Update token via inner first so unique_buyers etc. stay in sync
                 promoted = self._inner.handle_event(payload)

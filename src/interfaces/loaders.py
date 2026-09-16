@@ -160,5 +160,67 @@ def example_payloads() -> dict[str, dict[str, Any]]:
     }
 
 
+def build_auditor_input_from_observation(obs: Any, decision_timestamp: float) -> dict[str, Any]:
+    """Build AuditorIn payload from Observation with enriched Wave1 data."""
+    # Extract early tx sequence with provenance
+    early_tx = obs.early_tx_sequence if hasattr(obs, "early_tx_sequence") else []
+    
+    # Build holder concentration from enriched top5_share
+    holder_concentration = {}
+    if hasattr(obs, "top5_share") and obs.top5_share is not None:
+        holder_concentration["top5_share"] = obs.top5_share
+    
+    # Extract wallets from early tx
+    wallets = list({tx["wallet"] for tx in early_tx if "wallet" in tx})
+    
+    # Build provenance list
+    provenance = []
+    if hasattr(obs, "features"):
+        provenance = [
+            {
+                "feature": f.name,
+                "observed_at": f.observed_at,
+                "source": f.source,
+                "provenance": f.provenance,
+            }
+            for f in obs.features
+        ]
+    
+    return {
+        "observation_id": obs.observation_id,
+        "mint": obs.mint,
+        "early_tx_sequence": early_tx,
+        "wallets": wallets,
+        "creator_activity": {"transactions": getattr(obs, "creator_transactions", 0)},
+        "holder_concentration": holder_concentration,
+        "timing": {"age_seconds": decision_timestamp - obs.creation_timestamp},
+        "tx_sizes": [tx["sol"] for tx in early_tx if "sol" in tx],
+        "suspected_coordinated_behavior": [],
+        "provenance": provenance,
+        "decision_timestamp": decision_timestamp,
+    }
+
+
+def build_timing_input_from_observation(obs: Any, decision_timestamp: float) -> dict[str, Any]:
+    """Build TimingIn payload with global timing snapshot."""
+    snapshot = obs.global_timing_snapshot if hasattr(obs, "global_timing_snapshot") else {}
+    if not snapshot:
+        snapshot = {}
+    
+    return {
+        "observation_id": obs.observation_id,
+        "pumpfun_market_activity": {
+            "unique_buyers": getattr(obs, "unique_buyers", 0),
+            "trade_count": getattr(obs, "trade_count", 0),
+        },
+        "launch_rate": snapshot.get("launch_rate", 0.0),
+        "migration_graduation_rate": snapshot.get("migration_graduation_rate", 0.0),
+        "volume": getattr(obs, "volume", 0.0),
+        "sol_context": {"price_usd": snapshot.get("sol_usd")},
+        "broader_market_context": snapshot,
+        "timestamp": decision_timestamp,
+    }
+
+
 # Silence unused import warning path for SCHEMA re-export consumers
 _SCHEMAS = SCHEMA_BY_AGENT

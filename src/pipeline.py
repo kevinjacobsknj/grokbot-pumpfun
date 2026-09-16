@@ -113,12 +113,22 @@ class Pipeline:
         self.executor: BaseExecutor = build_executor(config)
         # Observation universe wraps LaunchMonitor: every launch gets observation_id
         self.obs_store = ObsStore("data")  # Use default data/ directory
-        self.monitor = ObservationMonitor(config, store=self.obs_store, on_skip=self._log_monitor_skip)
+        self.monitor = ObservationMonitor(
+            config, 
+            store=self.obs_store, 
+            on_skip=self._log_monitor_skip,
+            on_migration=lambda mint: self.global_metrics.record_migration(),
+        )
         self.watcher = PositionWatcher(self.risk, self._price, self._sell)
         self.health = HealthServer(
             config.ops.health_host, config.ops.health_port, self.status, self.metrics
         )
         self.heartbeat = Heartbeat(config.ops.heartbeat_seconds, self._heartbeat_status)
+        
+        # Wave1 enrichment: holders + global timing metrics
+        from .enrichment import HolderEnricher, GlobalMarketMetrics
+        self.holder_enricher = HolderEnricher(config)
+        self.global_metrics = GlobalMarketMetrics()
 
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOKENS)
         self._tasks: set[asyncio.Task] = set()
@@ -135,6 +145,7 @@ class Pipeline:
     async def __aenter__(self) -> Pipeline:
         await self.analyzer.__aenter__()
         await self.executor.__aenter__()
+        await self.holder_enricher.__aenter__()
         return self
 
     async def __aexit__(self, *exc: Any) -> None:
@@ -147,6 +158,7 @@ class Pipeline:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         await self.analyzer.__aexit__(*exc)
         await self.executor.__aexit__(*exc)
+        await self.holder_enricher.__aexit__(*exc)
         await self._grok_client.aclose()
 
     def restore(self) -> None:
@@ -247,6 +259,8 @@ class Pipeline:
             self._last_event_at = time.time()
             self.metrics.inc("tokens_seen")
             self.pulse.record_launch(token.sol_in_curve)
+            # Wave1: record launch in global metrics
+            self.global_metrics.record_launch()
             self._check_transitions()
             if self._stopping.is_set():
                 break
@@ -289,6 +303,18 @@ class Pipeline:
         # 2. Анализатор: сеть параллельно, метрики кодом.
         info, holders, trades = await self.analyzer.fetch(token.mint)
         enrich_token(token, info)
+        
+        # Wave1: enrich observation with holders (top5_share) if we have one
+        obs = self.monitor.observation_for(token.mint) if token.observation_id else None
+        if obs is not None:
+            # Attempt holder enrichment with provenance
+            await self.holder_enricher.enrich_observation(obs)
+            # Attach global timing snapshot at decision time
+            obs.global_timing_snapshot = await self.global_metrics.snapshot()
+            obs.global_timing_observed_at = time.time()
+            # Persist enriched observation
+            self.obs_store.write_observation(obs)
+        
         # Detect if REST filled without WS trade stream: flag missing_trade_stream
         if token.observation_id and (not trades or len(trades) < 3):
             # Few/no trades from REST suggests WS stream was missing
