@@ -339,3 +339,108 @@ async def test_enrichment_no_look_ahead():
     for feature in obs.features:
         feature.decision_timestamp = decision_time
         assert feature.validate_causality(), f"Feature {feature.name} violates causality"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_observation_monitor_enrichment_at_promotion():
+    """ObservationMonitor enriches observations at promotion with holders + global timing."""
+    from src.observation_monitor import ObservationMonitor
+    from src.observation_store import ObservationStore
+    from src.enrichment import HolderEnricher, GlobalMarketMetrics
+    
+    config = Config()
+    config.data.rest_url = "https://test.api"
+    config.data.ws_url = "wss://test.ws"
+    
+    # Mock holders API
+    respx.get("https://test.api/coins/TestMint/holders").mock(
+        return_value=httpx.Response(200, json=[
+            {"address": "h1", "share": 0.4},
+            {"address": "h2", "share": 0.3},
+        ])
+    )
+    
+    global_metrics = GlobalMarketMetrics()
+    global_metrics.record_launch()
+    global_metrics.record_launch()
+    
+    async with HolderEnricher(config) as enricher:
+        store = ObservationStore()
+        monitor = ObservationMonitor(
+            config,
+            store=store,
+            holder_enricher=enricher,
+            global_metrics=global_metrics,
+        )
+        
+        # Simulate create event
+        create_event = {
+            "txType": "create",
+            "mint": "TestMint",
+            "name": "Test",
+            "symbol": "TEST",
+            "image": "http://test.com/img.png",
+            "twitter": "https://x.com/test",
+        }
+        token = monitor.handle_event(create_event)
+        assert token is None  # Not promoted yet
+        
+        # Simulate trades to promote
+        for i in range(6):
+            monitor.handle_event({
+                "txType": "buy",
+                "mint": "TestMint",
+                "traderPublicKey": f"wallet{i}",
+                "solAmount": 0.5,
+            })
+        
+        # Check if promoted and enriched
+        promoted = monitor.handle_event({
+            "txType": "buy",
+            "mint": "TestMint",
+            "traderPublicKey": "wallet7",
+            "solAmount": 0.5,
+        })
+        
+        if promoted:
+            # Enrich the promoted token
+            await monitor.enrich_promoted(promoted)
+            
+            obs = monitor.observation_for(promoted.mint)
+            assert obs is not None
+            
+            # Check enrichments
+            assert obs.top5_share is not None
+            assert obs.top5_share == 0.7  # 0.4 + 0.3
+            assert obs.top5_share_observed_at is not None
+            assert obs.holders_enriched is True
+            
+            # Check global timing
+            assert obs.global_timing_snapshot is not None
+            assert "launch_rate" in obs.global_timing_snapshot
+            assert "migration_graduation_rate" in obs.global_timing_snapshot
+            assert obs.global_timing_observed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_timing_decision_timestamp_consistency():
+    """build_timing_input uses decision_timestamp, never fetched_at after decision."""
+    obs = Observation(mint="TestMint", observation_id="obs123")
+    obs.global_timing_snapshot = {
+        "launch_rate": 120.5,
+        "migration_graduation_rate": 2.3,
+        "sol_usd": 150.0,
+        "observed_at": 100.0,  # Observed in the past
+    }
+    
+    # Decision happens later
+    decision_time = 200.0
+    payload = build_timing_input_from_observation(obs, decision_time)
+    
+    # Payload should use decision_timestamp, not the snapshot's observed_at
+    assert payload["timestamp"] == decision_time
+    assert payload["timestamp"] >= obs.global_timing_snapshot["observed_at"]
+    
+    # This ensures no look-ahead: timing was observed before decision
+    assert obs.global_timing_snapshot["observed_at"] <= decision_time

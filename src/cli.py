@@ -149,7 +149,9 @@ def cmd_paper_monitor(args: argparse.Namespace) -> int:
     """Run observation universe monitor: store all launches, no live trading."""
     from .observation_monitor import ObservationMonitor
     from .observation_store import ObservationStore
+    from .enrichment import HolderEnricher, GlobalMarketMetrics
     from .log import setup_logging
+    import httpx
 
     config = load(args.config)
     if config.is_live:
@@ -165,16 +167,29 @@ def cmd_paper_monitor(args: argparse.Namespace) -> int:
         print("ВНИМАНИЕ: grok.api_key отсутствует — monitor-only OK", file=sys.stderr)
     setup_logging(config)
     store = ObservationStore(args.data_dir)
-    monitor = ObservationMonitor(config, store=store)
+    
+    # Wave1 enrichment: initialize enrichers for paper-monitor path
+    global_metrics = GlobalMarketMetrics()
 
     async def _run() -> int:
-        n = 0
-        async for token in monitor.stream():
-            n += 1
-            oid = getattr(token, "observation_id", "")
-            print(f"promoted {token.mint[:8]} obs={oid} buyers={token.unique_buyers}")
-            if args.max_launches and n >= args.max_launches:
-                return 0
+        # Create holder enricher with async context
+        async with HolderEnricher(config) as holder_enricher:
+            monitor = ObservationMonitor(
+                config, 
+                store=store,
+                holder_enricher=holder_enricher,
+                global_metrics=global_metrics,
+                on_migration=lambda mint: global_metrics.record_migration(),
+            )
+            
+            n = 0
+            async for token in monitor.stream():
+                n += 1
+                global_metrics.record_launch()  # Track launches for rate calculation
+                oid = getattr(token, "observation_id", "")
+                print(f"promoted {token.mint[:8]} obs={oid} buyers={token.unique_buyers}")
+                if args.max_launches and n >= args.max_launches:
+                    return 0
         return 0
 
     return asyncio.run(_run())

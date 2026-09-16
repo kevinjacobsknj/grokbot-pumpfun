@@ -202,7 +202,10 @@ def build_auditor_input_from_observation(obs: Any, decision_timestamp: float) ->
 
 
 def build_timing_input_from_observation(obs: Any, decision_timestamp: float) -> dict[str, Any]:
-    """Build TimingIn payload with global timing snapshot."""
+    """Build TimingIn payload with global timing snapshot.
+    
+    Uses decision_timestamp consistently - never fetched_at after decision.
+    """
     snapshot = obs.global_timing_snapshot if hasattr(obs, "global_timing_snapshot") else {}
     if not snapshot:
         snapshot = {}
@@ -218,7 +221,7 @@ def build_timing_input_from_observation(obs: Any, decision_timestamp: float) -> 
         "volume": getattr(obs, "volume", 0.0),
         "sol_context": {"price_usd": snapshot.get("sol_usd")},
         "broader_market_context": snapshot,
-        "timestamp": decision_timestamp,
+        "timestamp": decision_timestamp,  # Always use decision_timestamp, never fetched_at
     }
 
 

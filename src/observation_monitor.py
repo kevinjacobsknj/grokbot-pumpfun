@@ -35,12 +35,16 @@ class ObservationMonitor:
         store: Store | None = None,
         on_skip: Callable[[Token, str], None] | None = None,
         on_migration: Callable[[str], None] | None = None,
+        holder_enricher: Any | None = None,
+        global_metrics: Any | None = None,
     ) -> None:
         self.config = config
         self.store = store or Store()
         self._inner = LaunchMonitor(config, on_skip=self._on_skip_bridge)
         self._user_on_skip = on_skip
         self._on_migration = on_migration
+        self._holder_enricher = holder_enricher
+        self._global_metrics = global_metrics
         self._by_mint: dict[str, Observation] = {}
         self._sellers: dict[str, set[str]] = {}
         self._buy_counts: dict[str, int] = {}
@@ -121,7 +125,10 @@ class ObservationMonitor:
         }
 
     def handle_event(self, payload: dict[str, Any]) -> Token | None:
-        """Process one WS payload: always record observation; maybe promote token."""
+        """Process one WS payload: always record observation; maybe promote token.
+        
+        Synchronous version - enrichment happens separately via enrich_promoted().
+        """
         tx_type = payload.get("txType")
 
         if tx_type in ("create", "created"):
@@ -207,6 +214,13 @@ class ObservationMonitor:
 
         return self._inner.handle_event(payload)
 
+    async def enrich_promoted(self, token: Token) -> None:
+        """Enrich a promoted token's observation (call after handle_event returns a token)."""
+        obs = self._by_mint.get(token.mint)
+        if obs is not None and obs.candidate_status == "accepted":
+            await self._enrich_at_promotion(obs)
+            self.store.write_observation(obs)
+
     def mark_enrichment_without_stream(self, mint: str, detail: str = "") -> None:
         """REST enrichment arrived but trade stream was missing — must flag."""
         obs = self._by_mint.get(mint)
@@ -220,7 +234,50 @@ class ObservationMonitor:
         self.store.write_integrity(obs.integrity_events[-1])
         self.store.write_observation(obs)
 
-    def sweep(self, now: float | None = None) -> list[Token]:
+    async def _enrich_at_promotion(self, obs: Observation) -> None:
+        """Enrich observation with holders and global timing at promotion time.
+        
+        Called just before promoting to ensure top5_share and global_timing_snapshot
+        are stamped with observed_at <= decision_timestamp (no look-ahead).
+        """
+        # Holder enrichment (top5_share)
+        if self._holder_enricher is not None:
+            try:
+                await self._holder_enricher.enrich_observation(obs)
+            except Exception as exc:
+                log.warning("holder enrichment failed for %s: %s", obs.mint, exc)
+                obs.flag_integrity("api_failure", detail=f"holder enrichment error: {exc}")
+        
+        # Global timing snapshot at promotion/decision time
+        if self._global_metrics is not None:
+            try:
+                obs.global_timing_snapshot = await self._global_metrics.snapshot()
+                obs.global_timing_observed_at = time.time()
+            except Exception as exc:
+                log.warning("global metrics snapshot failed: %s", exc)
+                obs.flag_integrity("data_gap", detail=f"global metrics error: {exc}")
+
+    async def sweep(self, now: float | None = None) -> list[Token]:
+        ready = self._inner.sweep(now=now)
+        for token in ready:
+            obs = self._by_mint.get(token.mint)
+            if obs is not None:
+                obs.candidate_status = "accepted"
+                self._sync_token_fields(obs, token)
+                if obs.trade_stream_events == 0 and obs.unique_buyers == 0:
+                    obs.flag_integrity(
+                        "missing_trade_stream",
+                        detail="promoted without observed trade-stream buys",
+                    )
+                    self.store.write_integrity(obs.integrity_events[-1])
+                # Enrich at promotion time (holders + global timing)
+                await self._enrich_at_promotion(obs)
+                self.store.write_observation(obs)
+                self._attach_id(token, obs.observation_id)
+        return ready
+
+    def sweep_sync(self, now: float | None = None) -> list[Token]:
+        """Synchronous sweep without enrichment (for backward compat)."""
         ready = self._inner.sweep(now=now)
         for token in ready:
             obs = self._by_mint.get(token.mint)
@@ -274,6 +331,7 @@ class ObservationMonitor:
                             if isinstance(payload, dict):
                                 token = self.handle_event(payload)
                                 if token is not None:
+                                    await self.enrich_promoted(token)
                                     await LaunchMonitor._subscribe_trades(ws, token.mint, off=True)
                                     yield token
                                 elif payload.get("txType") in ("create", "created"):
@@ -282,7 +340,7 @@ class ObservationMonitor:
                                         await LaunchMonitor._subscribe_trades(ws, mint)
                         if time.time() - last_sweep >= sweeper_delay:
                             last_sweep = time.time()
-                            for token in self.sweep():
+                            for token in await self.sweep():
                                 yield token
             except asyncio.CancelledError:
                 raise
