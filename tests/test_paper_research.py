@@ -294,3 +294,54 @@ def test_interface_examples_validate(tmp_path):
 def test_new_observation_id_unique():
     ids = {new_observation_id() for _ in range(50)}
     assert len(ids) == 50
+
+
+# --- Offline replay fixtures --------------------------------------------------
+
+
+def test_offline_ws_replay_single_launch(tmp_path):
+    """Replay a recorded WS sequence without live connection."""
+    from tests.fixtures_ws_replay import replay_sequence
+    
+    # Use permissive filter config for replay testing
+    cfg = Config()
+    cfg.filter.min_age_seconds = 0
+    cfg.filter.min_unique_buyers = 2
+    
+    store = ObservationStore(tmp_path)
+    mon = ObservationMonitor(cfg, store=store)
+    
+    events = replay_sequence()
+    
+    for event in events:
+        mon.handle_event(event)
+    
+    # Should have recorded observations
+    assert store.count() >= 1
+    obs = list(store.iter_observations())[0]
+    assert obs.observation_id
+    assert obs.mint.startswith("ReplayMint")
+    # Create event recorded
+    assert obs.creation_timestamp > 0
+
+
+def test_offline_ws_replay_multiple_launches(tmp_path):
+    """Replay multiple concurrent launches."""
+    from tests.fixtures_ws_replay import multiple_launches_sequence
+    
+    store = ObservationStore(tmp_path)
+    mon = ObservationMonitor(Config(), store=store)
+    
+    events = multiple_launches_sequence()
+    promoted_mints = set()
+    
+    for event in events:
+        token = mon.handle_event(event)
+        if token is not None:
+            promoted_mints.add(token.mint)
+    
+    # Should track all 3 launches
+    assert store.count() >= 3
+    # Multiple unique observations
+    obs_ids = {obs.observation_id for obs in store.iter_observations()}
+    assert len(obs_ids) >= 3
