@@ -48,6 +48,8 @@ class Token(BaseModel):
     market_cap_sol: float = 0.0
     sol_in_curve: float = 0.0
 
+    observation_id: str = ""             # unique ID from observation universe
+
     @property
     def age_seconds(self) -> float:
         if not self.created_timestamp:
