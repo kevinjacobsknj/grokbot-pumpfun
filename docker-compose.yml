@@ -11,10 +11,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 45s        # больше, чем ops.shutdown_grace_seconds
     environment:
-      GROKBOT_MODE: "${GROKBOT_MODE:-dry-run}"
+      GROKBOT_MODE: "${GROKBOT_MODE:-paper}"
       GROKBOT_GROK_API_KEY: "${GROKBOT_GROK_API_KEY:?нужен ключ Grok}"
       GROKBOT_DATA_API_KEY: "${GROKBOT_DATA_API_KEY:-}"
-      GROKBOT_WALLET_PRIVATE_KEY: "${GROKBOT_WALLET_PRIVATE_KEY:-}"
       GROKBOT_LOG_LEVEL: "${GROKBOT_LOG_LEVEL:-INFO}"
       GROKBOT_HEALTH_PORT: "8080"
     ports:

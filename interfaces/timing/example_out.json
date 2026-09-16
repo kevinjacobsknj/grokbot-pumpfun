@@ -1,0 +1,9 @@
+{
+  "observation_id": "obs-example-1",
+  "market_sentiment": 0.5,
+  "meme_season": 0.5,
+  "volume_level": 0.5,
+  "anomalies": [],
+  "reasoning": "example",
+  "fetched_at": 2.0
+}

@@ -1,0 +1,18 @@
+{
+  "observation_id": "obs-example-1",
+  "coordinated_buying": false,
+  "wash_trading": false,
+  "creator_dump_prep": false,
+  "bundled_launch": false,
+  "organic_buyer_share": 0.8,
+  "confidence": 0.7,
+  "flags": [],
+  "reasoning": "example",
+  "evidence": [
+    {
+      "kind": "observed",
+      "claim": "diverse buyers",
+      "source": "ws"
+    }
+  ]
+}

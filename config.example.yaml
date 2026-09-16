@@ -3,7 +3,7 @@
 # config.yaml лежит в .gitignore и в репозиторий не попадает.
 #
 # Секреты можно не класть в файл вообще — переменные окружения важнее его:
-#   GROKBOT_GROK_API_KEY, GROKBOT_DATA_API_KEY, GROKBOT_WALLET_PRIVATE_KEY,
+#   GROKBOT_GROK_API_KEY, GROKBOT_DATA_API_KEY,
 #   GROKBOT_MODE, GROKBOT_RPC_URL, GROKBOT_LOG_PATH, GROKBOT_LOG_LEVEL,
 #   GROKBOT_STATE_PATH, GROKBOT_HEALTH_PORT
 # Так и сделано в Dockerfile: образ не содержит ни одного ключа.
@@ -12,7 +12,7 @@
 # порог вне диапазона, live без ключа кошелька) — отказ запуска, а не
 # сюрприз через час торговли.
 
-mode: dry-run            # dry-run | live
+mode: paper             # paper | dry-run  (live permanently refused)
 
 grok:
   api_key: "xai-YOUR-KEY-HERE"
@@ -24,12 +24,13 @@ grok:
   retry_base_delay: 1.0       # экспоненциальная задержка: base * 2**attempt
 
 solana:
+  # Paper research needs NO wallet. Do not paste keys here.
   rpc_url: "https://api.mainnet-beta.solana.com"
-  wallet_private_key: "YOUR-BASE58-PRIVATE-KEY"
+  wallet_private_key: ""
   jito:
-    enabled: true
+    enabled: false            # paper-research: never enable by default
     block_engine_url: "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
-    tip_lamports: 1000000     # чаевые за приоритет
+    tip_lamports: 1000000
 
 data:
   api_key: "YOUR-DATA-PROVIDER-KEY"

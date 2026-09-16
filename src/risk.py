@@ -443,11 +443,20 @@ class PositionWatcher:
                 continue
             self.price_failures.pop(position.mint, None)
 
+            # Track peak (for MFE) and trough (for MAE) continuously
             if price > position.peak_price:
                 persist_needed = persist_needed or (
                     price >= position.peak_price * self.PEAK_PERSIST_STEP
                 )
                 position.peak_price = price
+            
+            # Track trough for MAE (Maximum Adverse Excursion)
+            if position.trough_price == 0.0:
+                # Initialize on first valid price if not set
+                position.trough_price = price
+            elif price < position.trough_price:
+                position.trough_price = price
+                persist_needed = True  # Persist trough updates
 
             signal = exit_signal(position, price, self.manager.risk)
             if signal is None:

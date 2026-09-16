@@ -1,0 +1,27 @@
+experiment_id: example
+version: '1'
+partition_method: time
+features:
+- unique_buyers
+- curve_progress
+- top5_share
+thresholds:
+  min_buyers: 5.0
+  max_curve_progress: 0.4
+  min_total_score: 0.65
+entry_logic: filter then score then checker
+exit_logic: stop_loss / take_profit / trail / max_hold
+paper_fill_assumptions:
+  fee_pct: 1.0
+  max_impact_pct: 3.0
+  invent_fills: false
+  graduated_exit: UNTRADEABLE
+fees:
+  trade_fee_pct: 1.0
+slippage:
+  max_price_impact_pct: 3.0
+max_holding_period_seconds: 3600.0
+baseline_arm: full_system
+notes: Template frozen config for paper research
+frozen: true
+config_sha256: fe7efa7d8b7854915df170fbbf69d3741b72e13b7fd7f5a05987f6374d0656b6

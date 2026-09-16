@@ -155,7 +155,7 @@ async def test_dry_run_buys_and_logs_full_context(config):
     buys = [r for r in records if r["type"] == "buy"]
     assert len(buys) == 1
     buy = buys[0]
-    assert buy["tx_hash"] == "dry_run"          # ни одной реальной транзакции
+    assert buy["tx_hash"] in ("paper", "dry_run")  # paper ledger, never a real tx          # ни одной реальной транзакции
     assert buy["mode"] == "dry-run"
     assert buy["scores"]["total"] >= config.filter.min_total_score
     assert buy["audit"]["organic_buyer_share"] == 0.95
@@ -215,7 +215,7 @@ async def test_stop_loss_closes_position_and_logs_pnl(config):
     closes = [r for r in read_log(config.logging.path) if r["type"] == "close"]
     assert len(closes) == 1
     assert closes[0]["reason"] == "stop_loss"
-    assert closes[0]["tx_hash"] == "dry_run"
+    assert closes[0]["tx_hash"] in ("paper", "dry_run")
 
 
 # --- рестарт и остановка --------------------------------------------------
@@ -328,14 +328,16 @@ def test_live_without_flag_refuses(tmp_path):
     cfg.write_text(LIVE_YAML)
     with pytest.raises(SystemExit) as exc:
         load_and_check(parse_args(["--config", str(cfg)]))
-    assert "--i-understand-the-risk" in str(exc.value)
+    assert "live" in str(exc.value).lower()
 
 
-def test_live_with_flag_allowed(tmp_path):
+def test_live_with_flag_still_refused(tmp_path):
+    """Even with --i-understand-the-risk, paper-research refuses live."""
     cfg = tmp_path / "config.yaml"
     cfg.write_text(LIVE_YAML)
-    config = load_and_check(parse_args(["--config", str(cfg), "--i-understand-the-risk"]))
-    assert config.is_live
+    with pytest.raises(SystemExit) as exc:
+        load_and_check(parse_args(["--config", str(cfg), "--i-understand-the-risk"]))
+    assert "запрещён" in str(exc.value) or "live" in str(exc.value).lower()
 
 
 def test_missing_config_refuses(tmp_path):
@@ -375,19 +377,12 @@ def test_check_flag_exits_without_running(tmp_path, capsys):
     assert "dry-run" in printed
 
 
-async def test_live_executor_stub_does_not_crash_the_pipeline(config):
-    """Заглушка live поднимает NotImplementedError — это отказ ступени с
-    громкой записью в лог, а не падение процесса и не тихая покупка."""
+async def test_live_mode_cannot_build_pipeline_executor(config):
+    """Paper-research: constructing a live pipeline fails at build_executor."""
+    from src.models import ConfigError
     config.mode = "live"
-    pipeline = Pipeline(config)
-    wire(pipeline, APPROVE)
-    assert pipeline.executor.__class__.__name__ == "LiveExecutor"
-
-    assert await pipeline.process(fresh_token()) is None
-    assert pipeline.risk.open_count == 0
-    records = list(read_log(config.logging.path))
-    assert records[-1]["stage"] == "executor"
-    assert records[-1]["reason"] == "executor_not_implemented"
+    with pytest.raises(ConfigError, match="refused mode: live|paper-research"):
+        Pipeline(config)
 
 
 # --- полный жизненный цикл ------------------------------------------------

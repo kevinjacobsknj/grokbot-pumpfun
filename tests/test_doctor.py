@@ -213,12 +213,18 @@ def test_dry_run_mode_is_ok(config):
     assert check_live_readiness(config)[0].status == OK
 
 
-def test_live_mode_flags_the_stub(config):
-    """Пока исполнение — заглушка, live не должен считаться готовым."""
+def test_live_mode_fails_paper_research(config):
+    """Paper-research: live is a hard FAIL, not a stub warning."""
     config.mode = "live"
     checks = check_live_readiness(config)
-    assert checks[0].status == WARN
-    assert any(c.status == FAIL and "заглушка" in c.detail for c in checks)
+    assert any(c.status == FAIL for c in checks)
+    assert any("запрещён" in c.detail or "disabled" in c.detail for c in checks)
+
+
+def test_paper_mode_is_ok(config):
+    config.mode = "paper"
+    checks = check_live_readiness(config)
+    assert all(c.status == OK for c in checks)
 
 
 def test_curve_constants_look_sane():

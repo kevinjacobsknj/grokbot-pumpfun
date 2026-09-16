@@ -40,6 +40,8 @@ from .log import TradeLog, read_log, setup_logging
 from .market import MarketPulse
 from .models import Analysis, Config, ConfigError, Position, Token
 from .monitor import LaunchMonitor
+from .observation_monitor import ObservationMonitor
+from .observation_store import ObservationStore as ObsStore
 from .ops import (
     GrokOps,
     HealthServer,
@@ -109,7 +111,9 @@ class Pipeline:
 
         self.analyzer = Analyzer(config)
         self.executor: BaseExecutor = build_executor(config)
-        self.monitor = LaunchMonitor(config, on_skip=self._log_monitor_skip)
+        # Observation universe wraps LaunchMonitor: every launch gets observation_id
+        self.obs_store = ObsStore("data")  # Use default data/ directory
+        self.monitor = ObservationMonitor(config, store=self.obs_store, on_skip=self._log_monitor_skip)
         self.watcher = PositionWatcher(self.risk, self._price, self._sell)
         self.health = HealthServer(
             config.ops.health_host, config.ops.health_port, self.status, self.metrics
@@ -285,6 +289,13 @@ class Pipeline:
         # 2. Анализатор: сеть параллельно, метрики кодом.
         info, holders, trades = await self.analyzer.fetch(token.mint)
         enrich_token(token, info)
+        # Detect if REST filled without WS trade stream: flag missing_trade_stream
+        if token.observation_id and (not trades or len(trades) < 3):
+            # Few/no trades from REST suggests WS stream was missing
+            self.monitor.mark_enrichment_without_stream(
+                token.mint, 
+                detail=f"REST returned {len(trades)} trades; WS stream may be incomplete"
+            )
         curve = state_from_any(info, token.market_cap_sol)
         metrics = compute_metrics(
             token, holders, trades, curve, self.config.market,
@@ -358,6 +369,13 @@ class Pipeline:
         self.trade_log.buy(analysis, size_sol=decision.size_sol,
                            entry_price=result.price, tx_hash=result.tx_hash,
                            prompt_versions=self.prompt_versions())
+        # Record accept in observation store
+        if token.observation_id:
+            obs = self.obs_store.get(token.observation_id)
+            if obs:
+                obs.candidate_status = "accepted"
+                obs.flag_integrity("accept", detail=f"bought {decision.size_sol} SOL")
+                self.obs_store.write_observation(obs)
         self.metrics.inc("buys")
         self.pulse.record_bought()
         self.metrics.gauge("open_positions", self.risk.open_count)
@@ -382,6 +400,17 @@ class Pipeline:
             analysis.token, stage=stage, reason=reason, detail=detail,
             scores=analysis.scores if analysis.scores.total else None,
         )
+        # Record reject in observation store
+        token = analysis.token
+        if token.observation_id:
+            obs = self.obs_store.get(token.observation_id)
+            if obs:
+                obs.candidate_status = "rejected"
+                obs.reject_reason = f"{stage}:{reason}"
+                if detail:
+                    obs.reject_reason += f" ({detail})"
+                obs.flag_integrity("reject", detail=obs.reject_reason)
+                self.obs_store.write_observation(obs)
         return None
 
     # -- состояние и наблюдаемость ----------------------------------------
@@ -485,7 +514,7 @@ class Pipeline:
             "stalled": stalled,
             "seconds_since_event": round(time.time() - self._last_event_at, 1),
             "in_flight": len(self._tasks),
-            "pending_launches": len(self.monitor.pending),
+            "pending_launches": len(self.monitor._inner.pending),  # Access inner LaunchMonitor
             "open_positions": self.risk.open_count,
             "exposure_sol": round(self.risk.exposure_sol, 6),
             "blind_positions": len(self.watcher.blind),
@@ -508,7 +537,7 @@ class Pipeline:
         """Наблюдения, уходящие тайминг-агенту. Только измеренное."""
         data = self.pulse.snapshot()
         data.update({
-            "лончей_в_буфере": len(self.monitor.pending),
+            "лончей_в_буфере": len(self.monitor._inner.pending),  # Access inner LaunchMonitor
             "открытых_позиций": self.risk.open_count,
             "сделок_сегодня": self.risk.trades_today,
             "pnl_за_день_sol": round(self.risk.realized_pnl_sol, 4),
@@ -655,15 +684,11 @@ def load_and_check(args: argparse.Namespace) -> Config:
         print(f"ВНИМАНИЕ: {warning}", file=sys.stderr)
 
     if config.is_live:
-        print(LIVE_WARNING.format(
-            max_sol=config.risk.max_sol_per_trade,
-            daily=config.risk.daily_loss_limit_sol,
-        ), file=sys.stderr)
-        if not getattr(args, "i_understand_the_risk", False):
-            raise SystemExit(
-                "Отказ: mode: live без флага --i-understand-the-risk. "
-                "Либо верните mode: dry-run, либо подтвердите флагом."
-            )
+        raise SystemExit(
+            "Отказ: mode: live запрещён в paper-research сборке. "
+            "Используйте mode: paper или mode: dry-run. "
+            "LiveExecutor permanently disabled; флаги не помогут."
+        )
     return config
 
 

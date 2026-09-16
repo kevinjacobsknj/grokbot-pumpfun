@@ -242,23 +242,27 @@ async def check_rpc(config: Config, client: httpx.AsyncClient | None = None) -> 
 
 
 def check_live_readiness(config: Config) -> list[Check]:
-    if not config.is_live:
-        return [Check("режим", OK, "dry-run: транзакции не отправляются")]
-    from .executor import LiveExecutor
-
-    checks = [Check("режим", WARN, "live: транзакции будут отправлены по-настоящему")]
-    stub = "не реализован намеренно" in (LiveExecutor.buy.__doc__ or "")
-    try:
-        source = LiveExecutor.buy.__code__.co_consts
-        stub = stub or any("не реализован намеренно" in c for c in source if isinstance(c, str))
-    except AttributeError:      # pragma: no cover
-        pass
-    if stub:
-        checks.append(Check(
-            "исполнение", FAIL, "LiveExecutor всё ещё заглушка",
-            "допишите отправку транзакций либо верните mode: dry-run",
-        ))
-    return checks
+    """Paper-research: live is never ready; paper/dry-run is the only path."""
+    if config.is_paper:
+        mode_label = config.mode
+        return [
+            Check("режим", OK, f"{mode_label}: paper-only, транзакции не отправляются"),
+            Check("исполнение", OK, "PaperExecutor — симуляция по кривой, без подписи"),
+        ]
+    return [
+        Check(
+            "режим",
+            FAIL,
+            "mode: live запрещён в paper-research сборке",
+            "верните mode: paper или mode: dry-run",
+        ),
+        Check(
+            "исполнение",
+            FAIL,
+            "LiveExecutor permanently disabled",
+            "build_executor отказывает live ConfigError",
+        ),
+    ]
 
 
 def check_curve_constants() -> Check:

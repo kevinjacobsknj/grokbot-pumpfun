@@ -1,3 +1,7 @@
+> **Paper-research branch (`paper-research`):** live trading is permanently disabled.
+> See [RESEARCH.md](RESEARCH.md) and [PAPER_SOP.md](PAPER_SOP.md). Use `mode: paper` / `dry-run` only.
+> `build_executor` refuses `mode: live`. No wallet required.
+
 # grokbot-pumpfun
 
 [![CI](https://github.com/zostaff/grokbot-pumpfun/actions/workflows/ci.yml/badge.svg)](https://github.com/zostaff/grokbot-pumpfun/actions/workflows/ci.yml)

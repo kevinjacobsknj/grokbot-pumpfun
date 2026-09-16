@@ -1,0 +1,24 @@
+{
+  "observation_id": "obs-example-1",
+  "approve": false,
+  "reason": "example falsification: insufficient liquidity",
+  "flags": [
+    "insufficient_liquidity"
+  ],
+  "confidence": 0.9,
+  "falsification_notes": [
+    "liquidity below paper fill assumption"
+  ],
+  "checks": {
+    "data_leakage": false,
+    "stale_data": false,
+    "missing_provenance": false,
+    "coordinated_wallets": false,
+    "creator_involvement": false,
+    "concentration": false,
+    "contradictory_signals": false,
+    "bad_execution_assumptions": false,
+    "insufficient_liquidity": true,
+    "selection_bias": false
+  }
+}
